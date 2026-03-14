@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/husobee/vestigo"
@@ -258,9 +259,14 @@ func TestAudioComplete(t *testing.T) {
 
 func TestAudioTriggerInterim(t *testing.T) {
 	t.Run("valid request returns 200 with newRecordingId", func(t *testing.T) {
+		var completeCalls int32
+		var startCalls int32
+
 		audioAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
 			case r.Method == http.MethodPost && r.URL.Path == "/api/recordings/"+testRecordingID+"/complete":
+				atomic.AddInt32(&completeCalls, 1)
+
 				if got := r.Header.Get("X-User-Id"); got != testUserID {
 					t.Fatalf("unexpected complete X-User-Id: %q", got)
 				}
@@ -276,6 +282,8 @@ func TestAudioTriggerInterim(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = w.Write([]byte(`{"status":"completed","audioUrl":""}`))
 			case r.Method == http.MethodPost && r.URL.Path == "/api/recordings":
+				atomic.AddInt32(&startCalls, 1)
+
 				if got := r.Header.Get("X-User-Id"); got != testUserID {
 					t.Fatalf("unexpected start X-User-Id: %q", got)
 				}
@@ -328,6 +336,12 @@ func TestAudioTriggerInterim(t *testing.T) {
 		}
 		if got := body["newRecordingId"]; got == "" || got == nil {
 			t.Fatalf("expected newRecordingId, got %#v", got)
+		}
+		if got := atomic.LoadInt32(&completeCalls); got != 1 {
+			t.Fatalf("expected complete endpoint to be called once, got %d", got)
+		}
+		if got := atomic.LoadInt32(&startCalls); got != 1 {
+			t.Fatalf("expected start endpoint to be called once, got %d", got)
 		}
 	})
 
