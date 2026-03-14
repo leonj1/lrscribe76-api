@@ -57,6 +57,9 @@ func main() {
 	router.Post("/api/transcribe", routes.Transcribe)
 	router.Post("/api/transcribe-from-url", routes.TranscribeFromURL, clerkMiddleware)
 
+	// audio
+	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
+
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
 
