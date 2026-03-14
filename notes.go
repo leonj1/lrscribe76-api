@@ -61,10 +61,9 @@ func main() {
 	router.Post("/api/transcribe-from-url", routes.TranscribeFromURL, clerkMiddleware)
 
 	// audio
-	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
-
-	// audio
 	router.Post("/api/audio/start", routes.ConvexAuth(routes.AudioStart))
+	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
+	router.Get("/api/audio/status/:recordingId", routes.ConvexAuth(routes.AudioStatus))
 
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
