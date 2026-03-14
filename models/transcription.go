@@ -48,13 +48,13 @@ func (transcription Transcription) Save() (*Transcription, error) {
 	if transcription.Id == 0 {
 		transcription.Status = "pending"
 		transcription.CreatedAt = time.Now().UTC()
-		sql := fmt.Sprintf(
+		query := fmt.Sprintf(
 			"INSERT INTO %s (user_id, title, audio_url, content, status, created_at) VALUES (?,?,?,?,?,?)",
 			TranscriptionsTable,
 		)
 
 		res, err := db.Exec(
-			sql,
+			query,
 			transcription.UserId,
 			transcription.Title,
 			transcription.AudioUrl,
@@ -71,14 +71,14 @@ func (transcription Transcription) Save() (*Transcription, error) {
 			return nil, err
 		}
 	} else {
-		sql := fmt.Sprintf(
+		query := fmt.Sprintf(
 			"UPDATE %s SET user_id=?, title=?, audio_url=?, content=?, status=? WHERE id=%d",
 			TranscriptionsTable,
 			transcription.Id,
 		)
 
 		_, err := db.Exec(
-			sql,
+			query,
 			transcription.UserId,
 			transcription.Title,
 			transcription.AudioUrl,
@@ -94,12 +94,12 @@ func (transcription Transcription) Save() (*Transcription, error) {
 }
 
 func (transcription Transcription) AllByUserId(userId string) ([]*Transcription, error) {
-	sql := fmt.Sprintf(
+	query := fmt.Sprintf(
 		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM %s WHERE `user_id`=? ORDER BY `created_at` DESC",
 		TranscriptionsTable,
 	)
 
-	rows, err := db.Query(sql, userId)
+	rows, err := db.Query(query, userId)
 	if err != nil {
 		return nil, err
 	}

@@ -93,12 +93,6 @@ func writeValidationError(w http.ResponseWriter, field string) {
 	w.Write(js)
 }
 
-func writeUnauthorized(w http.ResponseWriter) {
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"message":"Unauthorized"}`))
-}
-
 func clerkUserIDFromRequest(r *http.Request) (string, error) {
 	authHeader := r.Header.Get("Authorization")
 	if !strings.HasPrefix(authHeader, "Bearer ") {

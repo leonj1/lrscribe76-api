@@ -75,13 +75,3 @@ func convexUserIDFromContext(ctx context.Context) string {
 	userID, _ := ctx.Value(convexUserIDContextKey).(string)
 	return userID
 }
-
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, map[string]string{"error": message})
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
-}

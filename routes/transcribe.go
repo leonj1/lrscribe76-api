@@ -13,7 +13,6 @@ import (
 
 const (
 	defaultTranscriptionMIMEType = "audio/webm"
-	defaultGeminiTranscriptionModel = "google/gemini-3.1-pro-preview"
 )
 
 var (
@@ -31,19 +30,19 @@ type transcribeResponse struct {
 }
 
 type requestyMultimodalChatRequest struct {
-	Model    string                         `json:"model"`
+	Model    string                          `json:"model"`
 	Messages []requestyMultimodalChatMessage `json:"messages"`
 }
 
 type requestyMultimodalChatMessage struct {
-	Role    string                       `json:"role"`
-	Content []requestyMultimodalContent  `json:"content"`
+	Role    string                      `json:"role"`
+	Content []requestyMultimodalContent `json:"content"`
 }
 
 type requestyMultimodalContent struct {
-	Type     string                    `json:"type"`
-	Text     string                    `json:"text,omitempty"`
-	ImageURL *requestyContentImageURL  `json:"image_url,omitempty"`
+	Type     string                   `json:"type"`
+	Text     string                   `json:"text,omitempty"`
+	ImageURL *requestyContentImageURL `json:"image_url,omitempty"`
 }
 
 type requestyContentImageURL struct {
@@ -62,25 +61,25 @@ type requestyMultimodalChatResponse struct {
 }
 
 func Transcribe(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticateClerkRequest(r); err != nil {
-		writeJSONError(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+	if _, err := authenticateClerkJWT(r); err != nil {
+		writeUnauthorized(w)
 		return
 	}
 
 	if r.Body == nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Audio data is required"})
+		writeJSONError(w, http.StatusBadRequest, "Audio data is required")
 		return
 	}
 
 	var payload transcribeRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
 	audioData := strings.TrimSpace(payload.AudioData)
 	if audioData == "" {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Audio data is required"})
+		writeJSONError(w, http.StatusBadRequest, "Audio data is required")
 		return
 	}
 
@@ -91,7 +90,7 @@ func Transcribe(w http.ResponseWriter, r *http.Request) {
 
 	transcription, err := callRequestyTranscription(r, audioData, mimeType)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

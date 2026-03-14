@@ -314,7 +314,9 @@ func assertMessageResponse(t *testing.T, recorder *httptest.ResponseRecorder, wa
 }
 
 func withSessionClaims(ctx context.Context, subject string) context.Context {
-	return clerk.ContextWithSessionClaims(ctx, &clerk.SessionClaims{Subject: subject})
+	return clerk.ContextWithSessionClaims(ctx, &clerk.SessionClaims{
+		RegisteredClaims: clerk.RegisteredClaims{Subject: subject},
+	})
 }
 
 func mustUnsignedClerkJWT(userID string) string {

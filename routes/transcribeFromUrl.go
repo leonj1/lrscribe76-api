@@ -3,7 +3,6 @@ package routes
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +18,6 @@ import (
 
 const (
 	requestyChatCompletionsURL         = "https://router.requesty.ai/v1/chat/completions"
-	defaultGeminiTranscriptionModel    = "google/gemini-3.1-pro-preview"
 	defaultAudioAPIBaseURL             = "https://lrscribe-audio-api-production.up.railway.app"
 	transcriptionInstructionPromptText = "Transcribe the provided audio verbatim. Return only the transcription text with no speaker labels, formatting, or extra commentary."
 	audioAPIRequestTimeout             = 10 * time.Second
@@ -32,12 +30,12 @@ const (
 )
 
 var (
-	requestyAudioTranscriptionURL = requestyChatCompletionsURL
+	requestyAudioTranscriptionURL  = requestyChatCompletionsURL
 	requestyAudioHTTPClientFactory = func() *http.Client {
 		return &http.Client{Timeout: requestyRequestTimeout}
 	}
 	audioFetchHTTPClientFactory = newSafeAudioFetchClient
-	resolveIPAddrs = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+	resolveIPAddrs              = func(ctx context.Context, host string) ([]net.IPAddr, error) {
 		return net.DefaultResolver.LookupIPAddr(ctx, host)
 	}
 )
@@ -70,13 +68,13 @@ type requestyTranscriptionResponse struct {
 
 func TranscribeFromURL(w http.ResponseWriter, r *http.Request) {
 	if r.Body == nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Request body is required"})
+		writeJSONError(w, http.StatusBadRequest, "Request body is required")
 		return
 	}
 
 	var payload transcribeFromURLRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
@@ -85,32 +83,32 @@ func TranscribeFromURL(w http.ResponseWriter, r *http.Request) {
 	mimeType := strings.TrimSpace(payload.MimeType)
 
 	if recordingID == "" && audioURL == "" {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "audioApiRecordingId or audioUrl is required"})
+		writeJSONError(w, http.StatusBadRequest, "audioApiRecordingId or audioUrl is required")
 		return
 	}
 
 	if mimeType == "" {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "mimeType is required"})
+		writeJSONError(w, http.StatusBadRequest, "mimeType is required")
 		return
 	}
 
 	if recordingID != "" {
 		resolvedAudioURL, err := fetchAudioURLFromRecordingID(r.Context(), recordingID)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		audioURL = resolvedAudioURL
 	}
 
 	if err := validateHTTPSURL(r.Context(), audioURL); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	transcription, err := transcribeAudioFromURL(r.Context(), audioURL, mimeType)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -311,39 +309,6 @@ func transcriptionModel() string {
 		return defaultGeminiTranscriptionModel
 	}
 	return model
-}
-
-func fetchAudioAsBase64(ctx context.Context, audioURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, audioURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to build audio download request: %w", err)
-	}
-
-	client := audioFetchHTTPClientFactory()
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("audio download failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("audio download failed with status %d", resp.StatusCode)
-	}
-
-	if resp.ContentLength > maxAudioBytes {
-		return "", fmt.Errorf("audio download exceeded maximum size of %d bytes", maxAudioBytes)
-	}
-
-	audioBytes, err := readBodyWithLimit(resp.Body, maxAudioBytes)
-	if err != nil {
-		return "", fmt.Errorf("failed to read audio download: %w", err)
-	}
-
-	if len(audioBytes) == 0 {
-		return "", errors.New("audio download was empty")
-	}
-
-	return base64.StdEncoding.EncodeToString(audioBytes), nil
 }
 
 func callRequestyAudioTranscription(ctx context.Context, payload map[string]interface{}) (string, error) {

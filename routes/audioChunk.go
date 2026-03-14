@@ -2,7 +2,6 @@ package routes
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
 	"os"
@@ -16,30 +15,6 @@ const (
 	maxAudioChunkBytes = 10 << 20
 	audioContentType   = "application/octet-stream"
 )
-
-type errorResponse struct {
-	Error string `json:"error"`
-}
-
-type convexUserIDRequest struct {
-	UserID string `json:"userId"`
-}
-
-func ConvexAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := convexUserIDFromRequest(r)
-		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if userID == "" {
-			writeJSONError(w, http.StatusUnauthorized, "Not authenticated: no userId provided")
-			return
-		}
-
-		next(w, r)
-	}
-}
 
 func AudioChunk(w http.ResponseWriter, r *http.Request) {
 	recordingID := vestigo.Param(r, "recordingId")
@@ -102,48 +77,10 @@ func AudioChunk(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func convexUserIDFromRequest(r *http.Request) (string, error) {
-	if userID := strings.TrimSpace(r.Header.Get("X-User-Id")); userID != "" {
-		return userID, nil
-	}
-
-	if r.Body == nil {
-		return "", nil
-	}
-
-	contentType := r.Header.Get(ContentType)
-	if !strings.Contains(strings.ToLower(contentType), JSON) {
-		return "", nil
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return "", err
-	}
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
-	if len(body) == 0 {
-		return "", nil
-	}
-
-	var payload convexUserIDRequest
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return "", nil
-	}
-
-	return strings.TrimSpace(payload.UserID), nil
-}
-
 func copyHeaders(dst, src http.Header) {
 	for key, values := range src {
 		for _, value := range values {
 			dst.Add(key, value)
 		}
 	}
-}
-
-func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(errorResponse{Error: message})
 }

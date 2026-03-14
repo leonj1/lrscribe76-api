@@ -3,33 +3,22 @@ package routes
 import (
 	"bytes"
 	"context"
-	"crypto"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"os"
-	"sort"
 	"regexp"
+	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
-	requestyBaseURL      = "https://router.requesty.ai/v1/chat/completions"
-	clerkJWKSURL         = "https://api.clerk.com/v1/jwks"
-	defaultRequestyModel = "openai-responses/gpt-5.4"
-	notDocumentedValue   = "Not documented"
+	requestyBaseURL    = "https://router.requesty.ai/v1/chat/completions"
+	notDocumentedValue = "Not documented"
 )
 
-var clerkKeyCache = &jwksCache{}
 var placeholderPattern = regexp.MustCompile(`\{\{\s*[^}]+\s*\}\}`)
 
 type generateDocumentRequest struct {
@@ -43,14 +32,14 @@ type generateDocumentRequest struct {
 }
 
 type templateSection struct {
-	Name                string   `json:"name"`
-	Description         string   `json:"description"`
-	Order               int      `json:"order"`
-	Examples            []string `json:"examples"`
-	AdhereToFormatting  bool     `json:"adhereToFormatting"`
-	FormatTemplate      string   `json:"formatTemplate"`
-	DoubleSpaceOutput   bool     `json:"doubleSpaceOutput"`
-	AllowAssessment     bool     `json:"allowAssessment"`
+	Name               string   `json:"name"`
+	Description        string   `json:"description"`
+	Order              int      `json:"order"`
+	Examples           []string `json:"examples"`
+	AdhereToFormatting bool     `json:"adhereToFormatting"`
+	FormatTemplate     string   `json:"formatTemplate"`
+	DoubleSpaceOutput  bool     `json:"doubleSpaceOutput"`
+	AllowAssessment    bool     `json:"allowAssessment"`
 }
 
 type generateDocumentResponse struct {
@@ -68,67 +57,25 @@ type generatedSection struct {
 	Content string `json:"content"`
 }
 
-type requestyChatRequest struct {
-	Model          string                   `json:"model"`
-	Messages       []requestyChatMessage    `json:"messages"`
-	ResponseFormat map[string]string        `json:"response_format,omitempty"`
-	Temperature    float64                  `json:"temperature,omitempty"`
-}
-
-type requestyChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type requestyChatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
-type jwksDocument struct {
-	Keys []jsonWebKey `json:"keys"`
-}
-
-type jsonWebKey struct {
-	KeyID      string   `json:"kid"`
-	Algorithm  string   `json:"alg"`
-	KeyType    string   `json:"kty"`
-	Modulus    string   `json:"n"`
-	Exponent   string   `json:"e"`
-	Certs      []string `json:"x5c"`
-}
-
-type jwksCache struct {
-	mu        sync.RWMutex
-	keys      map[string]*rsa.PublicKey
-	expiresAt time.Time
-}
-
 func GenerateDocument(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticateClerkRequest(r); err != nil {
-		writeJSONError(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+	if _, err := authenticateClerkJWT(r); err != nil {
+		writeUnauthorized(w)
 		return
 	}
 
 	if r.Body == nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Request body is required"})
+		writeJSONError(w, http.StatusBadRequest, "Request body is required")
 		return
 	}
 
 	var payload generateDocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
 	if err := validateGenerateDocumentRequest(payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -159,7 +106,7 @@ func GenerateDocument(w http.ResponseWriter, r *http.Request) {
 	if len(narrativeSections) > 0 {
 		generated, err := generateSectionsWithLLM(r.Context(), payload, narrativeSections, model, false)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for name, content := range generated {
@@ -170,7 +117,7 @@ func GenerateDocument(w http.ResponseWriter, r *http.Request) {
 	if len(placeholderSections) > 0 {
 		generated, err := generateSectionsWithLLM(r.Context(), payload, placeholderSections, model, true)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for name, content := range generated {
@@ -376,7 +323,7 @@ func callRequestyChatCompletion(ctx context.Context, model, systemPrompt, userPr
 		return "", errors.New("requesty returned no choices")
 	}
 
-	content := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	content := strings.TrimSpace(extractRequestyContent(parsed))
 	if content == "" {
 		return "", errors.New("requesty returned empty content")
 	}
@@ -434,292 +381,6 @@ func boolText(value bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-	js, err := json.Marshal(payload)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(status)
-	w.Write(js)
-}
-
-func writeJSONError(w http.ResponseWriter, status int, payload map[string]string) {
-	writeJSON(w, status, payload)
-}
-
-func authenticateClerkRequest(r *http.Request) (map[string]interface{}, error) {
-	token := getSessionToken(r)
-	if token == "" {
-		return nil, errors.New("missing session token")
-	}
-
-	if jwtKey := strings.TrimSpace(os.Getenv("CLERK_JWT_KEY")); jwtKey != "" {
-		return verifyTokenWithPEM(token, jwtKey)
-	}
-
-	return verifyTokenWithJWKS(r.Context(), token)
-}
-
-func getSessionToken(r *http.Request) string {
-	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
-	if authHeader != "" {
-		parts := strings.SplitN(authHeader, " ", 2)
-		if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
-			return strings.TrimSpace(parts[1])
-		}
-	}
-
-	cookie, err := r.Cookie("__session")
-	if err == nil {
-		return strings.TrimSpace(cookie.Value)
-	}
-
-	return ""
-}
-
-func verifyTokenWithPEM(token, pemKey string) (map[string]interface{}, error) {
-	block, _ := pem.Decode([]byte(pemKey))
-	if block == nil {
-		return nil, errors.New("invalid CLERK_JWT_KEY")
-	}
-
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	rsaPub, ok := pub.(*rsa.PublicKey)
-	if !ok {
-		return nil, errors.New("CLERK_JWT_KEY must be an RSA public key")
-	}
-
-	return verifyJWT(token, rsaPub)
-}
-
-func verifyTokenWithJWKS(ctx context.Context, token string) (map[string]interface{}, error) {
-	header, err := decodeJWTPart(token, 0)
-	if err != nil {
-		return nil, err
-	}
-
-	var parsedHeader map[string]interface{}
-	if err := json.Unmarshal(header, &parsedHeader); err != nil {
-		return nil, err
-	}
-
-	keyID, _ := parsedHeader["kid"].(string)
-	if keyID == "" {
-		return nil, errors.New("missing kid in Clerk token")
-	}
-
-	key, err := clerkKeyCache.getKey(ctx, keyID)
-	if err != nil {
-		return nil, err
-	}
-
-	return verifyJWT(token, key)
-}
-
-func verifyJWT(token string, key *rsa.PublicKey) (map[string]interface{}, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return nil, errors.New("invalid JWT")
-	}
-
-	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return nil, err
-	}
-
-	var header map[string]interface{}
-	if err := json.Unmarshal(headerBytes, &header); err != nil {
-		return nil, err
-	}
-
-	if alg, _ := header["alg"].(string); alg != "RS256" {
-		return nil, errors.New("unsupported JWT algorithm")
-	}
-
-	signingInput := parts[0] + "." + parts[1]
-	signature, err := base64.RawURLEncoding.DecodeString(parts[2])
-	if err != nil {
-		return nil, err
-	}
-
-	digest := sha256.Sum256([]byte(signingInput))
-	if err := rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], signature); err != nil {
-		return nil, err
-	}
-
-	claimsBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return nil, err
-	}
-
-	var claims map[string]interface{}
-	if err := json.Unmarshal(claimsBytes, &claims); err != nil {
-		return nil, err
-	}
-
-	now := time.Now().Unix()
-	if !claimAllowsTime(claims["nbf"], now, false) {
-		return nil, errors.New("token not active")
-	}
-	if !claimAllowsTime(claims["exp"], now, true) {
-		return nil, errors.New("token expired")
-	}
-	if sts, _ := claims["sts"].(string); strings.EqualFold(sts, "pending") {
-		return nil, errors.New("pending session")
-	}
-	if sub, _ := claims["sub"].(string); strings.TrimSpace(sub) == "" {
-		return nil, errors.New("missing subject")
-	}
-
-	return claims, nil
-}
-
-func claimAllowsTime(value interface{}, now int64, upperBound bool) bool {
-	if value == nil {
-		return true
-	}
-
-	number, ok := value.(float64)
-	if !ok {
-		return false
-	}
-
-	claimTime := int64(number)
-	if upperBound {
-		return now < claimTime
-	}
-	return now >= claimTime
-}
-
-func decodeJWTPart(token string, index int) ([]byte, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
-		return nil, errors.New("invalid JWT")
-	}
-	if index < 0 || index > 2 {
-		return nil, errors.New("invalid JWT part")
-	}
-	return base64.RawURLEncoding.DecodeString(parts[index])
-}
-
-func (c *jwksCache) getKey(ctx context.Context, keyID string) (*rsa.PublicKey, error) {
-	c.mu.RLock()
-	if c.keys != nil && time.Now().Before(c.expiresAt) {
-		if key := c.keys[keyID]; key != nil {
-			c.mu.RUnlock()
-			return key, nil
-		}
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.keys != nil && time.Now().Before(c.expiresAt) {
-		if key := c.keys[keyID]; key != nil {
-			return key, nil
-		}
-	}
-
-	keys, err := fetchClerkJWKS(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	c.keys = keys
-	c.expiresAt = time.Now().Add(15 * time.Minute)
-
-	key := c.keys[keyID]
-	if key == nil {
-		return nil, errors.New("no matching Clerk JWK found")
-	}
-	return key, nil
-}
-
-func fetchClerkJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clerkJWKSURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if secret := strings.TrimSpace(os.Getenv("CLERK_SECRET_KEY")); secret != "" {
-		req.Header.Set("Authorization", "Bearer "+secret)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("failed to fetch Clerk JWKS: status %d", resp.StatusCode)
-	}
-
-	var document jwksDocument
-	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
-		return nil, err
-	}
-
-	keys := make(map[string]*rsa.PublicKey, len(document.Keys))
-	for _, jwk := range document.Keys {
-		key, err := parseRSAPublicKey(jwk)
-		if err != nil {
-			continue
-		}
-		keys[jwk.KeyID] = key
-	}
-
-	if len(keys) == 0 {
-		return nil, errors.New("Clerk JWKS did not contain any usable RSA keys")
-	}
-
-	return keys, nil
-}
-
-func parseRSAPublicKey(jwk jsonWebKey) (*rsa.PublicKey, error) {
-	if len(jwk.Certs) > 0 {
-		der, err := base64.StdEncoding.DecodeString(jwk.Certs[0])
-		if err == nil {
-			cert, err := x509.ParseCertificate(der)
-			if err == nil {
-				if key, ok := cert.PublicKey.(*rsa.PublicKey); ok {
-					return key, nil
-				}
-			}
-		}
-	}
-
-	if jwk.Modulus == "" || jwk.Exponent == "" {
-		return nil, errors.New("invalid JWK")
-	}
-
-	modulusBytes, err := base64.RawURLEncoding.DecodeString(jwk.Modulus)
-	if err != nil {
-		return nil, err
-	}
-	exponentBytes, err := base64.RawURLEncoding.DecodeString(jwk.Exponent)
-	if err != nil {
-		return nil, err
-	}
-
-	exponent := 0
-	for _, b := range exponentBytes {
-		exponent = exponent<<8 + int(b)
-	}
-
-	return &rsa.PublicKey{
-		N: new(big.Int).SetBytes(modulusBytes),
-		E: exponent,
-	}, nil
 }
 
 func fillTemplateFallback(formatTemplate string) string {
