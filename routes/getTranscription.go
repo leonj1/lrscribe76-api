@@ -2,28 +2,28 @@ package routes
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"github.com/husobee/vestigo"
+	"log"
 	"net/http"
-	"notes/models"
 	"strconv"
-	"strings"
-)
 
-type transcriptionTokenClaims struct {
-	Sub string `json:"sub"`
-}
+	"github.com/clerk/clerk-sdk-go/v2"
+	"github.com/husobee/vestigo"
+	"notes/models"
+)
 
 type errorMessage struct {
 	Message string `json:"message"`
 }
 
+func UnauthorizedJSON(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusUnauthorized, errorMessage{Message: "Unauthorized"})
+}
+
 func GetTranscription(w http.ResponseWriter, r *http.Request) {
-	userId, err := clerkUserIDFromRequest(r)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, errorMessage{Message: "Unauthorized"})
+	claims, ok := clerk.SessionClaimsFromContext(r.Context())
+	if !ok || claims == nil || claims.Subject == "" {
+		UnauthorizedJSON(w, r)
 		return
 	}
 
@@ -47,49 +47,17 @@ func GetTranscription(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Error fetching transcription %d: %v", transcriptionId, err)
+		writeJSON(w, http.StatusInternalServerError, errorMessage{Message: "Internal server error"})
 		return
 	}
 
-	if found.UserId != userId {
-		writeJSON(w, http.StatusUnauthorized, errorMessage{Message: "Unauthorized"})
+	if found.UserId != claims.Subject {
+		writeJSON(w, http.StatusForbidden, errorMessage{Message: "Forbidden"})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, found)
-}
-
-func clerkUserIDFromRequest(r *http.Request) (string, error) {
-	authorizationHeader := r.Header.Get("Authorization")
-	if authorizationHeader == "" {
-		return "", errors.New("missing authorization header")
-	}
-
-	headerParts := strings.SplitN(authorizationHeader, " ", 2)
-	if len(headerParts) != 2 || !strings.EqualFold(headerParts[0], "Bearer") {
-		return "", errors.New("invalid authorization header")
-	}
-
-	tokenParts := strings.Split(headerParts[1], ".")
-	if len(tokenParts) < 2 {
-		return "", errors.New("invalid jwt")
-	}
-
-	payload, err := base64.RawURLEncoding.DecodeString(tokenParts[1])
-	if err != nil {
-		return "", err
-	}
-
-	var claims transcriptionTokenClaims
-	if err = json.Unmarshal(payload, &claims); err != nil {
-		return "", err
-	}
-
-	if claims.Sub == "" {
-		return "", errors.New("missing sub claim")
-	}
-
-	return claims.Sub, nil
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
