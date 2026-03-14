@@ -70,6 +70,7 @@ func main() {
 
 	// audio
 	router.Post("/api/audio/complete/:recordingId", routes.WithConvexAuth(routes.AudioComplete))
+	router.Post("/api/audio/trigger-interim/:recordingId", routes.WithConvexAuth(routes.AudioTriggerInterim))
 
 	log.Println("Starting web server")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", *serverPort), router))

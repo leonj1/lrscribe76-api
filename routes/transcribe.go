@@ -2,6 +2,7 @@ package routes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -93,6 +94,10 @@ func Transcribe(w http.ResponseWriter, r *http.Request) {
 }
 
 func callRequestyTranscription(r *http.Request, audioData, mimeType string) (string, error) {
+	return callRequestyTranscriptionWithContext(r.Context(), audioData, mimeType)
+}
+
+func callRequestyTranscriptionWithContext(ctx context.Context, audioData, mimeType string) (string, error) {
 	apiKey := strings.TrimSpace(os.Getenv("REQUESTY_API_KEY"))
 	if apiKey == "" {
 		return "", errors.New("REQUESTY_API_KEY is required")
@@ -129,7 +134,7 @@ func callRequestyTranscription(r *http.Request, audioData, mimeType string) (str
 		return "", fmt.Errorf("failed to encode transcription request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, requestyBaseURL, bytes.NewReader(requestBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestyBaseURL, bytes.NewReader(requestBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to build transcription request: %w", err)
 	}
