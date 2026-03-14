@@ -23,3 +23,9 @@ func InitDB(dataSourceName string) {
 		log.Panic(err)
 	}
 }
+
+func SetDB(database *sql.DB) *sql.DB {
+	previous := db
+	db = database
+	return previous
+}
