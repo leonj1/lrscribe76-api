@@ -33,6 +33,7 @@ func main() {
 	router.Post("/notes", routes.AddNote)
 	router.Put("/notes/:id", routes.AddTags)
 	router.Delete("/notes/:id", routes.DeleteNote)
+	router.Post("/api/transcriptions", routes.CreateTranscription)
 
 	// common queries
 	router.Get("/activenotes", routes.ActiveNotes)
