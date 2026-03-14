@@ -43,3 +43,52 @@ func (transcription Transcription) FindById(id int64) (*Transcription, error) {
 
 	return found, nil
 }
+
+func (transcription Transcription) Save() (*Transcription, error) {
+	if transcription.Id == 0 {
+		transcription.Status = "pending"
+		transcription.CreatedAt = time.Now().UTC()
+		sql := fmt.Sprintf(
+			"INSERT INTO %s (user_id, title, audio_url, content, status, created_at) VALUES (?,?,?,?,?,?)",
+			TranscriptionsTable,
+		)
+
+		res, err := db.Exec(
+			sql,
+			transcription.UserId,
+			transcription.Title,
+			transcription.AudioUrl,
+			transcription.Content,
+			transcription.Status,
+			transcription.CreatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		transcription.Id, err = res.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		sql := fmt.Sprintf(
+			"UPDATE %s SET user_id=?, title=?, audio_url=?, content=?, status=? WHERE id=%d",
+			TranscriptionsTable,
+			transcription.Id,
+		)
+
+		_, err := db.Exec(
+			sql,
+			transcription.UserId,
+			transcription.Title,
+			transcription.AudioUrl,
+			transcription.Content,
+			transcription.Status,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &transcription, nil
+}
