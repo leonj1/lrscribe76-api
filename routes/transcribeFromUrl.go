@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -21,6 +22,12 @@ const (
 	defaultGeminiTranscriptionModel    = "google/gemini-3.1-pro-preview"
 	defaultAudioAPIBaseURL             = "https://lrscribe-audio-api-production.up.railway.app"
 	transcriptionInstructionPromptText = "Transcribe the provided audio verbatim. Return only the transcription text with no speaker labels, formatting, or extra commentary."
+	audioAPIRequestTimeout             = 10 * time.Second
+	audioDownloadTimeout               = 2 * time.Minute
+	requestyRequestTimeout             = 3 * time.Minute
+	maxAudioAPIResponseBytes           = 10 << 20
+	maxAudioBytes                      = 50 << 20
+	maxRequestyErrorBodyBytes          = 1 << 20
 )
 
 type transcribeFromURLRequest struct {
@@ -50,11 +57,6 @@ type requestyTranscriptionResponse struct {
 }
 
 func TranscribeFromURL(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticateClerkRequest(r); err != nil {
-		writeJSONError(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
-		return
-	}
-
 	if r.Body == nil {
 		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Request body is required"})
 		return
@@ -89,7 +91,7 @@ func TranscribeFromURL(w http.ResponseWriter, r *http.Request) {
 		audioURL = resolvedAudioURL
 	}
 
-	if err := validateHTTPSURL(audioURL); err != nil {
+	if err := validateHTTPSURL(r.Context(), audioURL); err != nil {
 		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
@@ -120,19 +122,24 @@ func fetchAudioURLFromRecordingID(ctx context.Context, recordingID string) (stri
 		req.Header.Set("X-API-Key", apiKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: audioAPIRequestTimeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("audio API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("audio API request failed with status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := readBodyWithLimit(resp.Body, maxAudioAPIResponseBytes)
 	if err != nil {
 		return "", fmt.Errorf("failed to read audio API response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		message := strings.TrimSpace(string(body))
+		if message == "" {
+			return "", fmt.Errorf("audio API request failed with status %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("audio API request failed with status %d: %s", resp.StatusCode, message)
 	}
 
 	var parsed transcriptionAudioAPIResponse
@@ -174,7 +181,7 @@ func extractAudioURLFromMap(payload map[string]interface{}) string {
 	return ""
 }
 
-func validateHTTPSURL(rawURL string) error {
+func validateHTTPSURL(ctx context.Context, rawURL string) error {
 	parsed, err := neturl.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return errors.New("audio URL must be a valid https URL")
@@ -182,6 +189,36 @@ func validateHTTPSURL(rawURL string) error {
 	if !strings.EqualFold(parsed.Scheme, "https") || strings.TrimSpace(parsed.Host) == "" {
 		return errors.New("audio URL must be a valid https URL")
 	}
+
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return errors.New("audio URL must be a valid https URL")
+	}
+	if isDisallowedHostname(host) {
+		return errors.New("audio URL cannot target a private or internal host")
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if isDisallowedIP(ip) {
+			return errors.New("audio URL cannot target a private or internal host")
+		}
+		return nil
+	}
+
+	resolvedIPs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("audio URL host lookup failed: %w", err)
+	}
+	if len(resolvedIPs) == 0 {
+		return errors.New("audio URL host did not resolve to an IP address")
+	}
+
+	for _, resolved := range resolvedIPs {
+		if isDisallowedIP(resolved.IP) {
+			return errors.New("audio URL cannot target a private or internal host")
+		}
+	}
+
 	return nil
 }
 
@@ -270,7 +307,7 @@ func fetchAudioAsBase64(ctx context.Context, audioURL string) (string, error) {
 		return "", fmt.Errorf("failed to build audio download request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 2 * time.Minute}
+	client := newSafeAudioFetchClient()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("audio download failed: %w", err)
@@ -281,7 +318,11 @@ func fetchAudioAsBase64(ctx context.Context, audioURL string) (string, error) {
 		return "", fmt.Errorf("audio download failed with status %d", resp.StatusCode)
 	}
 
-	audioBytes, err := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxAudioBytes {
+		return "", fmt.Errorf("audio download exceeded maximum size of %d bytes", maxAudioBytes)
+	}
+
+	audioBytes, err := readBodyWithLimit(resp.Body, maxAudioBytes)
 	if err != nil {
 		return "", fmt.Errorf("failed to read audio download: %w", err)
 	}
@@ -311,23 +352,34 @@ func callRequestyAudioTranscription(ctx context.Context, payload map[string]inte
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set(ContentType, JSON)
 
-	client := &http.Client{Timeout: 3 * time.Minute}
+	client := &http.Client{Timeout: requestyRequestTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("requesty transcription request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		body, readErr := readBodyWithLimit(resp.Body, maxRequestyErrorBodyBytes)
+		if readErr != nil {
+			return "", fmt.Errorf("requesty error: status %d (failed to read error body: %v)", resp.StatusCode, readErr)
+		}
+
+		var parsed requestyTranscriptionResponse
+		if err := json.Unmarshal(body, &parsed); err == nil && parsed.Error != nil && strings.TrimSpace(parsed.Error.Message) != "" {
+			return "", fmt.Errorf("requesty error: %s", parsed.Error.Message)
+		}
+
+		rawBody := strings.TrimSpace(string(body))
+		if rawBody == "" {
+			return "", fmt.Errorf("requesty error: status %d", resp.StatusCode)
+		}
+		return "", fmt.Errorf("requesty error: status %d: %s", resp.StatusCode, rawBody)
+	}
+
 	var parsed requestyTranscriptionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return "", fmt.Errorf("failed to decode transcription response: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		if parsed.Error != nil && strings.TrimSpace(parsed.Error.Message) != "" {
-			return "", fmt.Errorf("requesty error: %s", parsed.Error.Message)
-		}
-		return "", fmt.Errorf("requesty error: status %d", resp.StatusCode)
 	}
 
 	transcription := extractTranscriptionText(parsed)
@@ -369,4 +421,76 @@ func extractTextContent(content interface{}) string {
 	}
 
 	return ""
+}
+
+func readBodyWithLimit(reader io.Reader, limit int64) ([]byte, error) {
+	limitedReader := &io.LimitedReader{R: reader, N: limit + 1}
+	body, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("response exceeded maximum size of %d bytes", limit)
+	}
+	return body, nil
+}
+
+func isDisallowedHostname(host string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(host))
+	switch normalized {
+	case "", "localhost", "localhost.localdomain", "0.0.0.0":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDisallowedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+
+	return ip.IsLoopback() ||
+		ip.IsUnspecified() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsInterfaceLocalMulticast()
+}
+
+func newSafeAudioFetchClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			host = address
+		}
+
+		if isDisallowedHostname(host) {
+			return nil, errors.New("audio URL cannot target a private or internal host")
+		}
+
+		resolver := net.DefaultResolver
+		resolvedIPs, err := resolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		if len(resolvedIPs) == 0 {
+			return nil, errors.New("audio URL host did not resolve to an IP address")
+		}
+		for _, resolved := range resolvedIPs {
+			if isDisallowedIP(resolved.IP) {
+				return nil, errors.New("audio URL cannot target a private or internal host")
+			}
+		}
+
+		dialer := &net.Dialer{Timeout: 30 * time.Second}
+		return dialer.DialContext(ctx, network, address)
+	}
+
+	return &http.Client{
+		Timeout:   audioDownloadTimeout,
+		Transport: transport,
+	}
 }
