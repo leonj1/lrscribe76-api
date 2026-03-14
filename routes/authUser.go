@@ -4,12 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"notes/clients"
-	"notes/models"
 	"strings"
 )
 
 func AuthUser(w http.ResponseWriter, r *http.Request) {
-	token := bearerToken(r.Header.Get("Authorization"))
+	token := authBearerToken(r.Header.Get("Authorization"))
 	if token == "" {
 		writeUnauthorized(w)
 		return
@@ -32,7 +31,7 @@ func AuthUser(w http.ResponseWriter, r *http.Request) {
 	w.Write(js)
 }
 
-func bearerToken(header string) string {
+func authBearerToken(header string) string {
 	if header == "" {
 		return ""
 	}
@@ -43,16 +42,4 @@ func bearerToken(header string) string {
 	}
 
 	return strings.TrimSpace(parts[1])
-}
-
-func writeUnauthorized(w http.ResponseWriter) {
-	js, err := json.Marshal(models.MessageResponse{Message: "Unauthorized"})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(http.StatusUnauthorized)
-	w.Write(js)
 }

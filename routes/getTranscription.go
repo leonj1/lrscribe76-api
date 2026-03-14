@@ -53,7 +53,7 @@ func GetTranscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if found.UserId != claims.Subject {
-		writeJSON(w, http.StatusForbidden, errorMessage{Message: "Forbidden"})
+		writeJSON(w, http.StatusUnauthorized, errorMessage{Message: "Unauthorized"})
 		return
 	}
 
