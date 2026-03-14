@@ -94,12 +94,12 @@ func (transcription Transcription) Save() (*Transcription, error) {
 }
 
 func (transcription Transcription) AllByUserId(userId string) ([]*Transcription, error) {
-	sql := fmt.Sprintf(
+	query := fmt.Sprintf(
 		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM %s WHERE `user_id`=? ORDER BY `created_at` DESC",
 		TranscriptionsTable,
 	)
 
-	rows, err := db.Query(sql, userId)
+	rows, err := db.Query(query, userId)
 	if err != nil {
 		return nil, err
 	}

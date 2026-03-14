@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -56,25 +55,25 @@ type convexSession struct {
 func AudioTriggerInterim(w http.ResponseWriter, r *http.Request) {
 	recordingID := vestigo.Param(r, "recordingId")
 	if recordingID == "" {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "recordingId is required"})
+		writeJSONError(w, http.StatusBadRequest, "recordingId is required")
 		return
 	}
 
 	if r.Body == nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "totalChunks and sessionId are required"})
+		writeJSONError(w, http.StatusBadRequest, "totalChunks and sessionId are required")
 		return
 	}
 
 	var payload audioTriggerInterimRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
 	payload.SessionID = strings.TrimSpace(payload.SessionID)
 	payload.MIMEType = strings.TrimSpace(payload.MIMEType)
 	if payload.TotalChunks == 0 || payload.SessionID == "" {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "totalChunks and sessionId are required"})
+		writeJSONError(w, http.StatusBadRequest, "totalChunks and sessionId are required")
 		return
 	}
 	if payload.MIMEType == "" {
@@ -93,9 +92,9 @@ func AudioTriggerInterim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	completed, err := completeAudioRecording(r.Context(), audioAPIURL, recordingID, ConvexUserID(r), completeBody)
-	if err != nil {
-		writeJSONError(w, err.status, map[string]string{"error": err.message})
+	completed, routeErr := completeAudioRecording(r.Context(), audioAPIURL, recordingID, ConvexUserID(r), completeBody)
+	if routeErr != nil {
+		writeJSONError(w, routeErr.status, routeErr.message)
 		return
 	}
 
@@ -111,8 +110,8 @@ func AudioTriggerInterim(w http.ResponseWriter, r *http.Request) {
 		UserID:    ConvexUserID(r),
 		MIMEType:  payload.MIMEType,
 	}
-	if err := startAudioRecording(r.Context(), audioAPIURL, ConvexUserID(r), startPayload); err != nil {
-		writeJSONError(w, err.status, map[string]string{"error": err.message})
+	if routeErr := startAudioRecording(r.Context(), audioAPIURL, ConvexUserID(r), startPayload); routeErr != nil {
+		writeJSONError(w, routeErr.status, routeErr.message)
 		return
 	}
 
@@ -224,30 +223,6 @@ func transcribeAndAppendSegment(sessionID, userID, mimeType, audioURL string) {
 	if err := appendTranscriptionToConvex(ctx, sessionID, userID, transcription); err != nil {
 		log.Printf("trigger interim: failed to append transcription for session %s: %v", sessionID, err)
 	}
-}
-
-func fetchAudioAsBase64(ctx context.Context, audioURL string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, audioURL, nil)
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("audio download failed with status %d", resp.StatusCode)
-	}
-
-	audioBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	return base64.StdEncoding.EncodeToString(audioBytes), nil
 }
 
 func appendTranscriptionToConvex(ctx context.Context, sessionID, userID, transcription string) error {

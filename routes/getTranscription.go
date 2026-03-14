@@ -2,7 +2,6 @@ package routes
 
 import (
 	"database/sql"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -60,14 +59,4 @@ func GetTranscription(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, found)
 }
 
-func writeJSON(w http.ResponseWriter, statusCode int, payload interface{}) {
-	js, err := json.Marshal(payload)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
 
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(statusCode)
-	w.Write(js)
-}

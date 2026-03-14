@@ -61,7 +61,7 @@ func TestTranscribe_ValidBase64AudioDataReturnsTranscription(t *testing.T) {
 	}
 
 	var response transcribeResponse
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response.Transcription != "transcribed text" {
 		t.Fatalf("transcription = %q", response.Transcription)
 	}
@@ -84,7 +84,7 @@ func TestTranscribe_MissingAudioDataReturnsBadRequest(t *testing.T) {
 	}
 
 	var response map[string]string
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response["error"] != "Audio data is required" {
 		t.Fatalf("error = %q", response["error"])
 	}
@@ -187,7 +187,7 @@ func TestTranscribeFromURL_ValidAudioAPIRecordingIDReturnsTranscription(t *testi
 
 	var captured map[string]interface{}
 	requesty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		decodeJSONResponse(t, r.Body, &captured)
+		decodeTranscribeJSONResponse(t, r.Body, &captured)
 		testWriteJSON(t, w, http.StatusOK, map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
@@ -218,7 +218,7 @@ func TestTranscribeFromURL_ValidAudioAPIRecordingIDReturnsTranscription(t *testi
 	}
 
 	var response transcribeFromURLResponse
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response.Transcription != "from recording id" {
 		t.Fatalf("transcription = %q", response.Transcription)
 	}
@@ -246,7 +246,7 @@ func TestTranscribeFromURL_ValidAudioURLFallbackReturnsTranscription(t *testing.
 	var payloads []map[string]interface{}
 	requesty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]interface{}
-		decodeJSONResponse(t, r.Body, &payload)
+		decodeTranscribeJSONResponse(t, r.Body, &payload)
 		payloads = append(payloads, payload)
 
 		if len(payloads) == 1 {
@@ -289,7 +289,7 @@ func TestTranscribeFromURL_ValidAudioURLFallbackReturnsTranscription(t *testing.
 	}
 
 	var response transcribeFromURLResponse
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response.Transcription != "fallback transcription" {
 		t.Fatalf("transcription = %q", response.Transcription)
 	}
@@ -333,7 +333,7 @@ func TestTranscribeFromURL_MissingAudioInputsReturnsBadRequest(t *testing.T) {
 	}
 
 	var response map[string]string
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response["error"] != "audioApiRecordingId or audioUrl is required" {
 		t.Fatalf("error = %q", response["error"])
 	}
@@ -353,7 +353,7 @@ func TestTranscribeFromURL_NonHTTPSAudioURLReturnsBadRequest(t *testing.T) {
 	}
 
 	var response map[string]string
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response["error"] != "audio URL must be a valid https URL" {
 		t.Fatalf("error = %q", response["error"])
 	}
@@ -373,7 +373,7 @@ func TestTranscribeFromURL_InvalidURLFormatReturnsBadRequest(t *testing.T) {
 	}
 
 	var response map[string]string
-	decodeJSONResponse(t, rec.Body, &response)
+	decodeTranscribeJSONResponse(t, rec.Body, &response)
 	if response["error"] != "audio URL must be a valid https URL" {
 		t.Fatalf("error = %q", response["error"])
 	}
@@ -442,12 +442,6 @@ func rewriteClient(t *testing.T, base *http.Client, target string) *http.Client 
 	}
 }
 
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return fn(req)
-}
-
 func authenticatedJSONRequest(t *testing.T, method, target string, payload interface{}) *http.Request {
 	t.Helper()
 
@@ -469,7 +463,7 @@ func jsonRequest(t *testing.T, method, target string, payload interface{}) *http
 	return req
 }
 
-func decodeJSONResponse(t *testing.T, body io.Reader, target interface{}) {
+func decodeTranscribeJSONResponse(t *testing.T, body io.Reader, target interface{}) {
 	t.Helper()
 	if err := json.NewDecoder(body).Decode(target); err != nil {
 		t.Fatalf("decode JSON: %v", err)

@@ -63,24 +63,24 @@ type requestyMultimodalChatResponse struct {
 
 func Transcribe(w http.ResponseWriter, r *http.Request) {
 	if _, err := authenticateClerkRequest(r); err != nil {
-		writeJSONError(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+		writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	if r.Body == nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Audio data is required"})
+		writeJSONError(w, http.StatusBadRequest, "Audio data is required")
 		return
 	}
 
 	var payload transcribeRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
 	audioData := strings.TrimSpace(payload.AudioData)
 	if audioData == "" {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Audio data is required"})
+		writeJSONError(w, http.StatusBadRequest, "Audio data is required")
 		return
 	}
 
@@ -91,7 +91,7 @@ func Transcribe(w http.ResponseWriter, r *http.Request) {
 
 	transcription, err := callRequestyTranscription(r, audioData, mimeType)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 

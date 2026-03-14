@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultRequestyModel = "openai-responses/gpt-5.4"
+	regenDefaultRequestyModel = "openai-responses/gpt-5.4"
 	requestyChatURL      = "https://router.requesty.ai/v1/chat/completions"
 	clerkJWKSPath        = "/.well-known/jwks.json"
 	clerkFallbackJWKSURL = "https://api.clerk.com/v1/jwks"
@@ -53,14 +53,14 @@ type requestyMessage struct {
 	Content string `json:"content"`
 }
 
-type requestyChatRequest struct {
+type regenRequestyChatRequest struct {
 	Model       string           `json:"model"`
 	Messages    []requestyMessage `json:"messages"`
 	Temperature float64          `json:"temperature"`
 	MaxTokens   int              `json:"max_tokens"`
 }
 
-type requestyChatResponse struct {
+type regenRequestyChatResponse struct {
 	Choices []struct {
 		Message struct {
 			Content interface{} `json:"content"`
@@ -68,12 +68,12 @@ type requestyChatResponse struct {
 	} `json:"choices"`
 }
 
-type clerkJWTHeader struct {
+type regenClerkJWTHeader struct {
 	Alg string `json:"alg"`
 	Kid string `json:"kid"`
 }
 
-type clerkClaims struct {
+type regenClerkClaims struct {
 	Subject string      `json:"sub"`
 	Issuer  string      `json:"iss"`
 	AZP     interface{} `json:"azp"`
@@ -82,11 +82,11 @@ type clerkClaims struct {
 	STS     string      `json:"sts"`
 }
 
-type clerkJWKS struct {
-	Keys []clerkJWK `json:"keys"`
+type regenClerkJWKS struct {
+	Keys []regenClerkJWK `json:"keys"`
 }
 
-type clerkJWK struct {
+type regenClerkJWK struct {
 	Kid string `json:"kid"`
 	Kty string `json:"kty"`
 	Alg string `json:"alg"`
@@ -95,7 +95,7 @@ type clerkJWK struct {
 }
 
 func RegenerateSection(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticateClerkJWT(r); err != nil {
+	if _, err := regenAuthenticateClerkJWT(r); err != nil {
 		writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
@@ -134,7 +134,7 @@ func requestRegeneratedSection(ctx context.Context, req regenerateSectionRequest
 		return "", errors.New("REQUESTY_API_KEY is not configured")
 	}
 
-	body := requestyChatRequest{
+	body := regenRequestyChatRequest{
 		Model:       resolveRequestyModel(req.Model),
 		Messages:    buildSectionMessages(req),
 		Temperature: 0.2,
@@ -170,7 +170,7 @@ func requestRegeneratedSection(ctx context.Context, req regenerateSectionRequest
 		return "", fmt.Errorf("requesty returned %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
-	var completion requestyChatResponse
+	var completion regenRequestyChatResponse
 	if err := json.Unmarshal(respBody, &completion); err != nil {
 		return "", err
 	}
@@ -298,7 +298,7 @@ func postProcessSectionContent(content string, section *documentSection) string 
 	return strings.TrimSpace(content)
 }
 
-func extractRequestyContent(resp requestyChatResponse) string {
+func extractRequestyContent(resp regenRequestyChatResponse) string {
 	if len(resp.Choices) == 0 {
 		return ""
 	}
@@ -369,34 +369,26 @@ func resolveRequestyModel(model string) string {
 		return model
 	}
 
-	return defaultRequestyModel
+	return regenDefaultRequestyModel
 }
 
 func hasSourceContent(transcription string, notes string) bool {
 	return strings.TrimSpace(transcription) != "" || strings.TrimSpace(notes) != ""
 }
 
-func writeJSONError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{
-		"error": message,
-	})
-}
-
-func authenticateClerkJWT(r *http.Request) (string, error) {
-	token := bearerToken(r.Header.Get("Authorization"))
+func regenAuthenticateClerkJWT(r *http.Request) (string, error) {
+	token := regenBearerToken(r.Header.Get("Authorization"))
 	if token == "" {
 		return "", errors.New("missing bearer token")
 	}
 
-	headerSeg, payloadSeg, signatureSeg, err := splitJWT(token)
+	headerSeg, payloadSeg, signatureSeg, err := regenSplitJWT(token)
 	if err != nil {
 		return "", err
 	}
 
-	var header clerkJWTHeader
-	if err := decodeJWTSegment(headerSeg, &header); err != nil {
+	var header regenClerkJWTHeader
+	if err := regenDecodeJWTSegment(headerSeg, &header); err != nil {
 		return "", err
 	}
 
@@ -404,8 +396,8 @@ func authenticateClerkJWT(r *http.Request) (string, error) {
 		return "", errors.New("invalid clerk jwt header")
 	}
 
-	var claims clerkClaims
-	if err := decodeJWTSegment(payloadSeg, &claims); err != nil {
+	var claims regenClerkClaims
+	if err := regenDecodeJWTSegment(payloadSeg, &claims); err != nil {
 		return "", err
 	}
 
@@ -413,11 +405,11 @@ func authenticateClerkJWT(r *http.Request) (string, error) {
 		return "", errors.New("pending clerk session")
 	}
 
-	if err := validateJWTTimeClaims(claims); err != nil {
+	if err := regenValidateJWTTimeClaims(claims); err != nil {
 		return "", err
 	}
 
-	publicKey, err := fetchClerkPublicKey(r.Context(), claims.Issuer, header.Kid)
+	publicKey, err := regenFetchClerkPublicKey(r.Context(), claims.Issuer, header.Kid)
 	if err != nil {
 		return "", err
 	}
@@ -440,7 +432,7 @@ func authenticateClerkJWT(r *http.Request) (string, error) {
 	return claims.Subject, nil
 }
 
-func bearerToken(header string) string {
+func regenBearerToken(header string) string {
 	if !strings.HasPrefix(strings.TrimSpace(header), "Bearer ") {
 		return ""
 	}
@@ -448,7 +440,7 @@ func bearerToken(header string) string {
 	return strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
 }
 
-func splitJWT(token string) (string, string, string, error) {
+func regenSplitJWT(token string) (string, string, string, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return "", "", "", errors.New("invalid jwt structure")
@@ -456,7 +448,7 @@ func splitJWT(token string) (string, string, string, error) {
 	return parts[0], parts[1], parts[2], nil
 }
 
-func decodeJWTSegment(segment string, dest interface{}) error {
+func regenDecodeJWTSegment(segment string, dest interface{}) error {
 	decoded, err := base64.RawURLEncoding.DecodeString(segment)
 	if err != nil {
 		return err
@@ -464,7 +456,7 @@ func decodeJWTSegment(segment string, dest interface{}) error {
 	return json.Unmarshal(decoded, dest)
 }
 
-func validateJWTTimeClaims(claims clerkClaims) error {
+func regenValidateJWTTimeClaims(claims regenClerkClaims) error {
 	now := time.Now().Unix()
 	if claims.NBF > 0 && now < claims.NBF {
 		return errors.New("jwt not active")
@@ -475,11 +467,11 @@ func validateJWTTimeClaims(claims clerkClaims) error {
 	return nil
 }
 
-func fetchClerkPublicKey(ctx context.Context, issuer string, kid string) (*rsa.PublicKey, error) {
-	jwksURL := buildClerkJWKSURL(issuer)
-	keys, err := fetchClerkJWKS(ctx, jwksURL, "")
+func regenFetchClerkPublicKey(ctx context.Context, issuer string, kid string) (*rsa.PublicKey, error) {
+	jwksURL := regenBuildClerkJWKSURL(issuer)
+	keys, err := regenFetchClerkJWKS(ctx, jwksURL, "")
 	if err != nil && strings.TrimSpace(os.Getenv("CLERK_SECRET_KEY")) != "" {
-		keys, err = fetchClerkJWKS(ctx, clerkFallbackJWKSURL, os.Getenv("CLERK_SECRET_KEY"))
+		keys, err = regenFetchClerkJWKS(ctx, clerkFallbackJWKSURL, os.Getenv("CLERK_SECRET_KEY"))
 	}
 	if err != nil {
 		return nil, err
@@ -490,13 +482,13 @@ func fetchClerkPublicKey(ctx context.Context, issuer string, kid string) (*rsa.P
 			continue
 		}
 
-		return jwkToPublicKey(key)
+		return regenJwkToPublicKey(key)
 	}
 
 	return nil, errors.New("clerk jwk not found")
 }
 
-func buildClerkJWKSURL(issuer string) string {
+func regenBuildClerkJWKSURL(issuer string) string {
 	issuer = strings.TrimSpace(issuer)
 	if issuer == "" {
 		return clerkFallbackJWKSURL
@@ -505,7 +497,7 @@ func buildClerkJWKSURL(issuer string) string {
 	return strings.TrimRight(issuer, "/") + clerkJWKSPath
 }
 
-func fetchClerkJWKS(ctx context.Context, url string, secret string) ([]clerkJWK, error) {
+func regenFetchClerkJWKS(ctx context.Context, url string, secret string) ([]regenClerkJWK, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -531,7 +523,7 @@ func fetchClerkJWKS(ctx context.Context, url string, secret string) ([]clerkJWK,
 		return nil, fmt.Errorf("clerk jwks returned %d", resp.StatusCode)
 	}
 
-	var jwks clerkJWKS
+	var jwks regenClerkJWKS
 	if err := json.Unmarshal(body, &jwks); err != nil {
 		return nil, err
 	}
@@ -539,7 +531,7 @@ func fetchClerkJWKS(ctx context.Context, url string, secret string) ([]clerkJWK,
 	return jwks.Keys, nil
 }
 
-func jwkToPublicKey(jwk clerkJWK) (*rsa.PublicKey, error) {
+func regenJwkToPublicKey(jwk regenClerkJWK) (*rsa.PublicKey, error) {
 	nb, err := base64.RawURLEncoding.DecodeString(jwk.N)
 	if err != nil {
 		return nil, err

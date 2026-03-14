@@ -24,12 +24,13 @@ import (
 
 const (
 	requestyBaseURL      = "https://router.requesty.ai/v1/chat/completions"
-	clerkJWKSURL         = "https://api.clerk.com/v1/jwks"
+	genDocClerkJWKSURL   = "https://api.clerk.com/v1/jwks"
 	defaultRequestyModel = "openai-responses/gpt-5.4"
 	notDocumentedValue   = "Not documented"
 )
 
-var clerkKeyCache = &jwksCache{}
+
+var genDocClerkKeyCache = &genDocJWKSCache{}
 var placeholderPattern = regexp.MustCompile(`\{\{\s*[^}]+\s*\}\}`)
 
 type generateDocumentRequest struct {
@@ -91,7 +92,7 @@ type requestyChatResponse struct {
 	} `json:"error,omitempty"`
 }
 
-type jwksDocument struct {
+type genDocJWKSDocument struct {
 	Keys []jsonWebKey `json:"keys"`
 }
 
@@ -104,7 +105,7 @@ type jsonWebKey struct {
 	Certs      []string `json:"x5c"`
 }
 
-type jwksCache struct {
+type genDocJWKSCache struct {
 	mu        sync.RWMutex
 	keys      map[string]*rsa.PublicKey
 	expiresAt time.Time
@@ -112,23 +113,23 @@ type jwksCache struct {
 
 func GenerateDocument(w http.ResponseWriter, r *http.Request) {
 	if _, err := authenticateClerkRequest(r); err != nil {
-		writeJSONError(w, http.StatusUnauthorized, map[string]string{"message": "Unauthorized"})
+		writeJSONError(w, http.StatusUnauthorized, "Unauthorized")
 		return
 	}
 
 	if r.Body == nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Request body is required"})
+		writeJSONError(w, http.StatusBadRequest, "Request body is required")
 		return
 	}
 
 	var payload generateDocumentRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON body"})
+		writeJSONError(w, http.StatusBadRequest, "Invalid JSON body")
 		return
 	}
 
 	if err := validateGenerateDocumentRequest(payload); err != nil {
-		writeJSONError(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -159,7 +160,7 @@ func GenerateDocument(w http.ResponseWriter, r *http.Request) {
 	if len(narrativeSections) > 0 {
 		generated, err := generateSectionsWithLLM(r.Context(), payload, narrativeSections, model, false)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for name, content := range generated {
@@ -170,7 +171,7 @@ func GenerateDocument(w http.ResponseWriter, r *http.Request) {
 	if len(placeholderSections) > 0 {
 		generated, err := generateSectionsWithLLM(r.Context(), payload, placeholderSections, model, true)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for name, content := range generated {
@@ -436,21 +437,6 @@ func boolText(value bool) string {
 	return "false"
 }
 
-func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
-	js, err := json.Marshal(payload)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set(ContentType, JSON)
-	w.WriteHeader(status)
-	w.Write(js)
-}
-
-func writeJSONError(w http.ResponseWriter, status int, payload map[string]string) {
-	writeJSON(w, status, payload)
-}
-
 func authenticateClerkRequest(r *http.Request) (map[string]interface{}, error) {
 	token := getSessionToken(r)
 	if token == "" {
@@ -516,7 +502,7 @@ func verifyTokenWithJWKS(ctx context.Context, token string) (map[string]interfac
 		return nil, errors.New("missing kid in Clerk token")
 	}
 
-	key, err := clerkKeyCache.getKey(ctx, keyID)
+	key, err := genDocClerkKeyCache.getKey(ctx, keyID)
 	if err != nil {
 		return nil, err
 	}
@@ -610,7 +596,7 @@ func decodeJWTPart(token string, index int) ([]byte, error) {
 	return base64.RawURLEncoding.DecodeString(parts[index])
 }
 
-func (c *jwksCache) getKey(ctx context.Context, keyID string) (*rsa.PublicKey, error) {
+func (c *genDocJWKSCache) getKey(ctx context.Context, keyID string) (*rsa.PublicKey, error) {
 	c.mu.RLock()
 	if c.keys != nil && time.Now().Before(c.expiresAt) {
 		if key := c.keys[keyID]; key != nil {
@@ -645,7 +631,7 @@ func (c *jwksCache) getKey(ctx context.Context, keyID string) (*rsa.PublicKey, e
 }
 
 func fetchClerkJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clerkJWKSURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, genDocClerkJWKSURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -664,7 +650,7 @@ func fetchClerkJWKS(ctx context.Context) (map[string]*rsa.PublicKey, error) {
 		return nil, fmt.Errorf("failed to fetch Clerk JWKS: status %d", resp.StatusCode)
 	}
 
-	var document jwksDocument
+	var document genDocJWKSDocument
 	if err := json.NewDecoder(resp.Body).Decode(&document); err != nil {
 		return nil, err
 	}
