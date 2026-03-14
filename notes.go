@@ -53,6 +53,7 @@ func main() {
 	// health
 	router.Get("/health", routes.Health)
 	router.Post("/api/generate-document", routes.GenerateDocument)
+	router.Post("/api/transcribe", routes.Transcribe)
 
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
