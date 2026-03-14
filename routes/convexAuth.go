@@ -6,50 +6,82 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 )
 
-type convexUserIDContextKey string
+type contextKey string
 
-const convexUserIDKey convexUserIDContextKey = "convexUserID"
+const convexUserIDContextKey contextKey = "convexUserID"
 
-func WithConvexAuth(next http.HandlerFunc) http.HandlerFunc {
+// ConvexAuth is the middleware used by audio chunk routes.
+func ConvexAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID := r.Header.Get("X-User-Id")
-		if userID == "" && r.Body != nil {
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-
-			var payload map[string]interface{}
-			if len(body) > 0 {
-				if err := json.Unmarshal(body, &payload); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-
-				if value, ok := payload["userId"].(string); ok {
-					userID = value
-				}
-			}
-
-			r.Body = io.NopCloser(bytes.NewReader(body))
+		userID, err := extractConvexUserID(r)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
 		}
-
-		if userID == "" {
-			w.Header().Set(ContentType, JSON)
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error":"Not authenticated: no userId provided"}`))
+		if strings.TrimSpace(userID) == "" {
+			writeJSONError(w, http.StatusUnauthorized, "Not authenticated: no userId provided")
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), convexUserIDKey, userID)
+		ctx := context.WithValue(r.Context(), convexUserIDContextKey, userID)
 		next(w, r.WithContext(ctx))
 	}
 }
 
+// WithConvexAuth is an alias used by audio complete routes.
+func WithConvexAuth(next http.HandlerFunc) http.HandlerFunc {
+	return ConvexAuth(next)
+}
+
+func extractConvexUserID(r *http.Request) (string, error) {
+	trimmedHeader := strings.TrimSpace(r.Header.Get("X-User-Id"))
+	if trimmedHeader != "" {
+		return trimmedHeader, nil
+	}
+
+	if r.Body == nil {
+		return "", nil
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+	r.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", nil
+	}
+
+	var payload struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(payload.UserID), nil
+}
+
+// ConvexUserID extracts the user ID from request context (legacy helper).
 func ConvexUserID(r *http.Request) string {
-	userID, _ := r.Context().Value(convexUserIDKey).(string)
+	return convexUserIDFromContext(r.Context())
+}
+
+func convexUserIDFromContext(ctx context.Context) string {
+	userID, _ := ctx.Value(convexUserIDContextKey).(string)
 	return userID
+}
+
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
+	w.Header().Set(ContentType, JSON)
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(payload)
 }

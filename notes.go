@@ -63,6 +63,9 @@ func main() {
 	// audio
 	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
 
+	// audio
+	router.Post("/api/audio/start", routes.ConvexAuth(routes.AudioStart))
+
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
 
