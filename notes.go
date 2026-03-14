@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/husobee/vestigo"
 	"log"
 	"net/http"
 	"notes/models"
 	"notes/routes"
+	"os"
+
+	"github.com/clerk/clerk-sdk-go/v2"
+	clerkhttp "github.com/clerk/clerk-sdk-go/v2/http"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/husobee/vestigo"
 )
 
 type Env struct {
@@ -26,13 +30,22 @@ func main() {
 	// open connection to db
 	connectionString := fmt.Sprintf("%s:%s@/%s?parseTime=true", *userName, *password, *databaseName)
 	models.InitDB(connectionString)
+	clerk.SetKey(os.Getenv("CLERK_SECRET_KEY"))
 
 	router := vestigo.NewRouter()
+	clerkMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			clerkhttp.WithHeaderAuthorization(
+				clerkhttp.AuthorizationFailureHandler(http.HandlerFunc(routes.UnauthorizedJSON)),
+			)(next).ServeHTTP(w, r)
+		}
+	}
 
 	router.Get("/notes", routes.AllNotes)
 	router.Post("/notes", routes.AddNote)
 	router.Put("/notes/:id", routes.AddTags)
 	router.Delete("/notes/:id", routes.DeleteNote)
+	router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
 
 	// common queries
 	router.Get("/activenotes", routes.ActiveNotes)
