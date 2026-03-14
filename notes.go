@@ -48,6 +48,7 @@ func main() {
 	router.Delete("/notes/:id", routes.DeleteNote)
 	router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
 	router.Post("/api/transcriptions", routes.CreateTranscription)
+	router.Get("/api/transcriptions", routes.ListTranscriptions)
 
 	// common queries
 	router.Get("/activenotes", routes.ActiveNotes)
