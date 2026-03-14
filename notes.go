@@ -40,6 +40,9 @@ func main() {
 	// health
 	router.Get("/health", routes.Health)
 
+	// audio
+	router.Post("/api/audio/start", routes.ConvexAuth(routes.AudioStart))
+
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
 
