@@ -31,6 +31,17 @@ const (
 	maxRedirectHops                    = 10
 )
 
+var (
+	requestyAudioTranscriptionURL = requestyChatCompletionsURL
+	requestyAudioHTTPClientFactory = func() *http.Client {
+		return &http.Client{Timeout: requestyRequestTimeout}
+	}
+	audioFetchHTTPClientFactory = newSafeAudioFetchClient
+	resolveIPAddrs = func(ctx context.Context, host string) ([]net.IPAddr, error) {
+		return net.DefaultResolver.LookupIPAddr(ctx, host)
+	}
+)
+
 type transcribeFromURLRequest struct {
 	AudioAPIRecordingID string `json:"audioApiRecordingId"`
 	AudioURL            string `json:"audioUrl"`
@@ -206,7 +217,7 @@ func validateHTTPSURL(ctx context.Context, rawURL string) error {
 		return nil
 	}
 
-	resolvedIPs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	resolvedIPs, err := resolveIPAddrs(ctx, host)
 	if err != nil {
 		return fmt.Errorf("audio URL host lookup failed: %w", err)
 	}
@@ -308,7 +319,7 @@ func fetchAudioAsBase64(ctx context.Context, audioURL string) (string, error) {
 		return "", fmt.Errorf("failed to build audio download request: %w", err)
 	}
 
-	client := newSafeAudioFetchClient()
+	client := audioFetchHTTPClientFactory()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("audio download failed: %w", err)
@@ -346,14 +357,14 @@ func callRequestyAudioTranscription(ctx context.Context, payload map[string]inte
 		return "", fmt.Errorf("failed to encode transcription request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestyChatCompletionsURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestyAudioTranscriptionURL, bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("failed to build transcription request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set(ContentType, JSON)
 
-	client := &http.Client{Timeout: requestyRequestTimeout}
+	client := requestyAudioHTTPClientFactory()
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("requesty transcription request failed: %w", err)
@@ -472,8 +483,7 @@ func newSafeAudioFetchClient() *http.Client {
 			return nil, errors.New("audio URL cannot target a private or internal host")
 		}
 
-		resolver := net.DefaultResolver
-		resolvedIPs, err := resolver.LookupIPAddr(ctx, host)
+		resolvedIPs, err := resolveIPAddrs(ctx, host)
 		if err != nil {
 			return nil, err
 		}

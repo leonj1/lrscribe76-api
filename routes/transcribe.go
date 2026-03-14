@@ -16,6 +16,11 @@ const (
 	defaultGeminiTranscriptionModel = "google/gemini-3.1-pro-preview"
 )
 
+var (
+	requestyTranscriptionURL        = requestyBaseURL
+	requestyTranscriptionHTTPClient = http.DefaultClient
+)
+
 type transcribeRequest struct {
 	AudioData string `json:"audioData"`
 	MIMEType  string `json:"mimeType"`
@@ -134,7 +139,7 @@ func callRequestyTranscriptionWithContext(ctx context.Context, audioData, mimeTy
 		return "", fmt.Errorf("failed to encode transcription request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestyBaseURL, bytes.NewReader(requestBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestyTranscriptionURL, bytes.NewReader(requestBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to build transcription request: %w", err)
 	}
@@ -142,7 +147,7 @@ func callRequestyTranscriptionWithContext(ctx context.Context, audioData, mimeTy
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set(ContentType, JSON)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := requestyTranscriptionHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("requesty request failed: %w", err)
 	}
