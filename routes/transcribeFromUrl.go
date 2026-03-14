@@ -28,6 +28,7 @@ const (
 	maxAudioAPIResponseBytes           = 10 << 20
 	maxAudioBytes                      = 50 << 20
 	maxRequestyErrorBodyBytes          = 1 << 20
+	maxRedirectHops                    = 10
 )
 
 type transcribeFromURLRequest struct {
@@ -462,9 +463,9 @@ func isDisallowedIP(ip net.IP) bool {
 func newSafeAudioFetchClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-		host, _, err := net.SplitHostPort(address)
+		host, port, err := net.SplitHostPort(address)
 		if err != nil {
-			host = address
+			return nil, err
 		}
 
 		if isDisallowedHostname(host) {
@@ -486,11 +487,31 @@ func newSafeAudioFetchClient() *http.Client {
 		}
 
 		dialer := &net.Dialer{Timeout: 30 * time.Second}
-		return dialer.DialContext(ctx, network, address)
+		var lastErr error
+		for _, resolved := range resolvedIPs {
+			targetAddress := net.JoinHostPort(resolved.IP.String(), port)
+			conn, err := dialer.DialContext(ctx, network, targetAddress)
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+		}
+
+		if lastErr == nil {
+			lastErr = errors.New("audio URL host did not resolve to a dialable IP address")
+		}
+
+		return nil, lastErr
 	}
 
 	return &http.Client{
 		Timeout:   audioDownloadTimeout,
 		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= maxRedirectHops {
+				return fmt.Errorf("stopped after %d redirects", maxRedirectHops)
+			}
+			return validateHTTPSURL(req.Context(), req.URL.String())
+		},
 	}
 }
