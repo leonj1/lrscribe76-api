@@ -40,6 +40,9 @@ func main() {
 	// health
 	router.Get("/health", routes.Health)
 
+	// audio
+	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
+
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
 
