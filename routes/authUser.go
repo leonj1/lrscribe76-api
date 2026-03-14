@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var getAuthUser = clients.GetAuthUser
+
 func AuthUser(w http.ResponseWriter, r *http.Request) {
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
@@ -15,7 +17,7 @@ func AuthUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := clients.GetAuthUser(token)
+	user, err := getAuthUser(token)
 	if err != nil {
 		writeUnauthorized(w)
 		return
