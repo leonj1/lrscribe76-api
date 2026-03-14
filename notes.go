@@ -57,6 +57,9 @@ func main() {
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
 
+	// audio
+	router.Post("/api/audio/complete/:recordingId", routes.WithConvexAuth(routes.AudioComplete))
+
 	log.Println("Starting web server")
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", *serverPort), router))
 }
