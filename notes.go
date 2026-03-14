@@ -41,6 +41,7 @@ func main() {
 		}
 	}
 
+	router.Get("/api/auth/user", routes.AuthUser)
 	router.Get("/notes", routes.AllNotes)
 	router.Post("/notes", routes.AddNote)
 	router.Put("/notes/:id", routes.AddTags)
