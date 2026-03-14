@@ -39,6 +39,7 @@ func main() {
 
 	// health
 	router.Get("/health", routes.Health)
+	router.Post("/api/regenerate-section", routes.RegenerateSection)
 
 	// filters
 	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
