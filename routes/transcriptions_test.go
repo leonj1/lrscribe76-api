@@ -36,7 +36,7 @@ func TestListTranscriptionsReturnsUserTranscriptions(t *testing.T) {
 	)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM transcriptions WHERE `user_id`=? ORDER BY `created_at` DESC",
+		"SELECT id, user_id, title, audio_url, content, status, created_at FROM transcriptions WHERE user_id=$1 ORDER BY created_at DESC",
 	)).WithArgs("user_123").WillReturnRows(rows)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/transcriptions", nil)
@@ -76,7 +76,7 @@ func TestListTranscriptionsReturnsEmptyArrayWhenUserHasNoTranscriptions(t *testi
 	})
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM transcriptions WHERE `user_id`=? ORDER BY `created_at` DESC",
+		"SELECT id, user_id, title, audio_url, content, status, created_at FROM transcriptions WHERE user_id=$1 ORDER BY created_at DESC",
 	)).WithArgs("user_empty").WillReturnRows(rows)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/transcriptions", nil)
@@ -107,8 +107,8 @@ func TestCreateTranscriptionReturnsCreatedTranscription(t *testing.T) {
 	_, mock, cleanup := setupMockDB(t)
 	defer cleanup()
 
-	mock.ExpectExec(regexp.QuoteMeta(
-		"INSERT INTO transcriptions (user_id, title, audio_url, content, status, created_at) VALUES (?,?,?,?,?,?)",
+	mock.ExpectQuery(regexp.QuoteMeta(
+		"INSERT INTO transcriptions (user_id, title, audio_url, content, status, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
 	)).WithArgs(
 		"user_123",
 		"Patient Visit - March 2026",
@@ -116,7 +116,7 @@ func TestCreateTranscriptionReturnsCreatedTranscription(t *testing.T) {
 		"Optional initial transcription text",
 		"pending",
 		sqlmock.AnyArg(),
-	).WillReturnResult(sqlmock.NewResult(2, 1))
+	).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
 
 	body := bytes.NewBufferString(`{"userId":"user_123","title":"Patient Visit - March 2026","audioUrl":"https://example.com/audio.webm","content":"Optional initial transcription text"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/transcriptions", body)
@@ -179,7 +179,7 @@ func TestGetTranscriptionReturnsOwnedTranscription(t *testing.T) {
 	)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM transcriptions WHERE `id`=?",
+		"SELECT id, user_id, title, audio_url, content, status, created_at FROM transcriptions WHERE id=$1",
 	)).WithArgs(int64(1)).WillReturnRows(rows)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/transcriptions/1", nil)
@@ -212,7 +212,7 @@ func TestGetTranscriptionReturnsNotFoundForUnknownID(t *testing.T) {
 	defer cleanup()
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM transcriptions WHERE `id`=?",
+		"SELECT id, user_id, title, audio_url, content, status, created_at FROM transcriptions WHERE id=$1",
 	)).WithArgs(int64(404)).WillReturnError(sql.ErrNoRows)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/transcriptions/404", nil)
@@ -245,7 +245,7 @@ func TestGetTranscriptionReturnsUnauthorizedForDifferentOwner(t *testing.T) {
 	)
 
 	mock.ExpectQuery(regexp.QuoteMeta(
-		"SELECT `id`, `user_id`, `title`, `audio_url`, `content`, `status`, `created_at` FROM transcriptions WHERE `id`=?",
+		"SELECT id, user_id, title, audio_url, content, status, created_at FROM transcriptions WHERE id=$1",
 	)).WithArgs(int64(1)).WillReturnRows(rows)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/transcriptions/1", nil)
@@ -314,7 +314,11 @@ func assertMessageResponse(t *testing.T, recorder *httptest.ResponseRecorder, wa
 }
 
 func withSessionClaims(ctx context.Context, subject string) context.Context {
-	return clerk.ContextWithSessionClaims(ctx, &clerk.SessionClaims{Subject: subject})
+	return clerk.ContextWithSessionClaims(ctx, &clerk.SessionClaims{
+		RegisteredClaims: clerk.RegisteredClaims{
+			Subject: subject,
+		},
+	})
 }
 
 func mustUnsignedClerkJWT(userID string) string {

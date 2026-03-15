@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -12,13 +11,8 @@ import (
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	clerkhttp "github.com/clerk/clerk-sdk-go/v2/http"
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/husobee/vestigo"
 )
-
-type Env struct {
-	db *sql.DB
-}
 
 func envOrFlag(envKey string, flagVal *string) string {
 	if v := os.Getenv(envKey); v != "" {
@@ -31,32 +25,24 @@ func envOrFlag(envKey string, flagVal *string) string {
 }
 
 func main() {
-	var userName = flag.String("user", "", "db username")
-	var password = flag.String("pass", "", "db password")
-	var databaseName = flag.String("db", "", "db name")
 	var serverPort = flag.String("port", "", "server port")
 	flag.Parse()
 
-	dbUser := envOrFlag("DB_USER", userName)
-	dbPass := envOrFlag("DB_PASS", password)
-	dbName := envOrFlag("DB_NAME", databaseName)
-	dbHost := os.Getenv("DB_HOST")
+	databaseURL := os.Getenv("DATABASE_URL")
+	databaseReady := false
 	srvPort := envOrFlag("PORT", serverPort)
 	if srvPort == "" {
 		srvPort = "8080"
 	}
 
-	// open connection to db (optional — skip if no DB_USER configured)
-	if dbUser != "" {
-		var connectionString string
-		if dbHost != "" {
-			connectionString = fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", dbUser, dbPass, dbHost, dbName)
+	if databaseURL != "" {
+		if err := models.InitDB(databaseURL); err != nil {
+			log.Printf("Warning: database connection unavailable: %v", err)
 		} else {
-			connectionString = fmt.Sprintf("%s:%s@/%s?parseTime=true", dbUser, dbPass, dbName)
+			databaseReady = true
 		}
-		models.InitDB(connectionString)
 	} else {
-		log.Println("Warning: No DB credentials configured, database endpoints will not work")
+		log.Println("Warning: DATABASE_URL not configured, database endpoints will not work")
 	}
 	clerk.SetKey(os.Getenv("CLERK_SECRET_KEY"))
 
@@ -70,18 +56,6 @@ func main() {
 	}
 
 	router.Get("/api/auth/user", routes.AuthUser)
-	router.Get("/notes", routes.AllNotes)
-	router.Post("/notes", routes.AddNote)
-	router.Put("/notes/:id", routes.AddTags)
-	router.Delete("/notes/:id", routes.DeleteNote)
-	router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
-	router.Post("/api/transcriptions", routes.CreateTranscription)
-	router.Get("/api/transcriptions", routes.ListTranscriptions)
-
-	// common queries
-	router.Get("/activenotes", routes.ActiveNotes)
-
-	// health
 	router.Get("/health", routes.Health)
 	router.Post("/api/generate-document", routes.GenerateDocument)
 	router.Post("/api/regenerate-section", routes.RegenerateSection)
@@ -93,12 +67,21 @@ func main() {
 	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
 	router.Get("/api/audio/status/:recordingId", routes.ConvexAuth(routes.AudioStatus))
 
-	// filters
-	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
-
 	// audio
 	router.Post("/api/audio/complete/:recordingId", routes.WithConvexAuth(routes.AudioComplete))
 	router.Post("/api/audio/trigger-interim/:recordingId", routes.WithConvexAuth(routes.AudioTriggerInterim))
+
+	if databaseReady {
+		router.Get("/notes", routes.AllNotes)
+		router.Post("/notes", routes.AddNote)
+		router.Put("/notes/:id", routes.AddTags)
+		router.Delete("/notes/:id", routes.DeleteNote)
+		router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
+		router.Post("/api/transcriptions", routes.CreateTranscription)
+		router.Get("/api/transcriptions", routes.ListTranscriptions)
+		router.Get("/activenotes", routes.ActiveNotes)
+		router.Get("/tags/:key/:value", routes.FilterNotesByTag)
+	}
 
 	log.Println("Starting web server")
 	log.Printf("Starting on port %s", srvPort)

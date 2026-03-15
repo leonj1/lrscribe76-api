@@ -2,26 +2,48 @@ package models
 
 import (
 	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
-	"log"
+	"errors"
+
+	_ "github.com/lib/pq"
 )
 
 var db *sql.DB
+var ErrDBUnavailable = errors.New("database connection is not initialized")
 
 type DB struct {
 	*sql.DB
 }
 
-func InitDB(dataSourceName string) {
-	var err error
-	db, err = sql.Open("mysql", dataSourceName)
-	if err != nil {
-		log.Panic(err)
+func InitDB(connectionString string) error {
+	if connectionString == "" {
+		return ErrDBUnavailable
 	}
 
-	if err = db.Ping(); err != nil {
-		log.Panic(err)
+	newDB, err := sql.Open("postgres", connectionString)
+	if err != nil {
+		return err
 	}
+
+	if err = newDB.Ping(); err != nil {
+		_ = newDB.Close()
+		return err
+	}
+
+	oldDB := db
+	db = newDB
+	if oldDB != nil {
+		_ = oldDB.Close()
+	}
+
+	return nil
+}
+
+func requireDB() (*sql.DB, error) {
+	if db == nil {
+		return nil, ErrDBUnavailable
+	}
+
+	return db, nil
 }
 
 func SetDB(database *sql.DB) *sql.DB {
