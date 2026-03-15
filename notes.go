@@ -20,6 +20,16 @@ type Env struct {
 	db *sql.DB
 }
 
+func envOrFlag(envKey string, flagVal *string) string {
+	if v := os.Getenv(envKey); v != "" {
+		return v
+	}
+	if flagVal != nil {
+		return *flagVal
+	}
+	return ""
+}
+
 func main() {
 	var userName = flag.String("user", "", "db username")
 	var password = flag.String("pass", "", "db password")
@@ -27,9 +37,27 @@ func main() {
 	var serverPort = flag.String("port", "", "server port")
 	flag.Parse()
 
-	// open connection to db
-	connectionString := fmt.Sprintf("%s:%s@/%s?parseTime=true", *userName, *password, *databaseName)
-	models.InitDB(connectionString)
+	dbUser := envOrFlag("DB_USER", userName)
+	dbPass := envOrFlag("DB_PASS", password)
+	dbName := envOrFlag("DB_NAME", databaseName)
+	dbHost := os.Getenv("DB_HOST")
+	srvPort := envOrFlag("PORT", serverPort)
+	if srvPort == "" {
+		srvPort = "8080"
+	}
+
+	// open connection to db (optional — skip if no DB_USER configured)
+	if dbUser != "" {
+		var connectionString string
+		if dbHost != "" {
+			connectionString = fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", dbUser, dbPass, dbHost, dbName)
+		} else {
+			connectionString = fmt.Sprintf("%s:%s@/%s?parseTime=true", dbUser, dbPass, dbName)
+		}
+		models.InitDB(connectionString)
+	} else {
+		log.Println("Warning: No DB credentials configured, database endpoints will not work")
+	}
 	clerk.SetKey(os.Getenv("CLERK_SECRET_KEY"))
 
 	router := vestigo.NewRouter()
@@ -73,5 +101,6 @@ func main() {
 	router.Post("/api/audio/trigger-interim/:recordingId", routes.WithConvexAuth(routes.AudioTriggerInterim))
 
 	log.Println("Starting web server")
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", *serverPort), router))
+	log.Printf("Starting on port %s", srvPort)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", srvPort), router))
 }
