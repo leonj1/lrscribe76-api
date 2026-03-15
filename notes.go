@@ -72,10 +72,6 @@ func main() {
 	router.Post("/api/audio/trigger-interim/:recordingId", routes.WithConvexAuth(routes.AudioTriggerInterim))
 
 	if databaseReady {
-		router.Get("/notes", routes.AllNotes)
-		router.Post("/notes", routes.AddNote)
-		router.Put("/notes/:id", routes.AddTags)
-		router.Delete("/notes/:id", routes.DeleteNote)
 		router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
 		router.Post("/api/transcriptions", routes.CreateTranscription)
 		router.Get("/api/transcriptions", routes.ListTranscriptions)

@@ -77,10 +77,6 @@ go run notes.go
 - `POST /api/audio/trigger-interim/:recordingId` — Trigger interim transcription, start new segment
 
 ### Notes & Transcriptions (requires Postgres)
-- `GET /notes` — List all notes
-- `POST /notes` — Create note
-- `PUT /notes/:id` — Add tags to note
-- `DELETE /notes/:id` — Delete note
 - `GET /activenotes` — List active notes
 - `GET /tags/:key/:value` — Filter notes by tag
 - `GET /api/transcriptions` — List transcriptions
