@@ -75,8 +75,6 @@ func main() {
 		router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
 		router.Post("/api/transcriptions", routes.CreateTranscription)
 		router.Get("/api/transcriptions", routes.ListTranscriptions)
-		router.Get("/activenotes", routes.ActiveNotes)
-		router.Get("/tags/:key/:value", routes.FilterNotesByTag)
 	}
 
 	log.Println("Starting web server")
