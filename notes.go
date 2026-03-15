@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -12,13 +11,8 @@ import (
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	clerkhttp "github.com/clerk/clerk-sdk-go/v2/http"
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/husobee/vestigo"
 )
-
-type Env struct {
-	db *sql.DB
-}
 
 func envOrFlag(envKey string, flagVal *string) string {
 	if v := os.Getenv(envKey); v != "" {
@@ -31,32 +25,21 @@ func envOrFlag(envKey string, flagVal *string) string {
 }
 
 func main() {
-	var userName = flag.String("user", "", "db username")
-	var password = flag.String("pass", "", "db password")
-	var databaseName = flag.String("db", "", "db name")
 	var serverPort = flag.String("port", "", "server port")
 	flag.Parse()
 
-	dbUser := envOrFlag("DB_USER", userName)
-	dbPass := envOrFlag("DB_PASS", password)
-	dbName := envOrFlag("DB_NAME", databaseName)
-	dbHost := os.Getenv("DB_HOST")
+	databaseURL := os.Getenv("DATABASE_URL")
 	srvPort := envOrFlag("PORT", serverPort)
 	if srvPort == "" {
 		srvPort = "8080"
 	}
 
-	// open connection to db (optional — skip if no DB_USER configured)
-	if dbUser != "" {
-		var connectionString string
-		if dbHost != "" {
-			connectionString = fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", dbUser, dbPass, dbHost, dbName)
-		} else {
-			connectionString = fmt.Sprintf("%s:%s@/%s?parseTime=true", dbUser, dbPass, dbName)
+	if databaseURL != "" {
+		if err := models.InitDB(databaseURL); err != nil {
+			log.Printf("Warning: database connection unavailable: %v", err)
 		}
-		models.InitDB(connectionString)
 	} else {
-		log.Println("Warning: No DB credentials configured, database endpoints will not work")
+		log.Println("Warning: DATABASE_URL not configured, database endpoints will not work")
 	}
 	clerk.SetKey(os.Getenv("CLERK_SECRET_KEY"))
 

@@ -2,8 +2,9 @@ package models
 
 import (
 	"fmt"
-	"github.com/kataras/go-errors"
 	"time"
+
+	"github.com/kataras/go-errors"
 )
 
 const TagsTable = "tags"
@@ -18,8 +19,13 @@ type Tag struct {
 }
 
 func (tag Tag) AllTags() ([]*Tag, error) {
-	sql := fmt.Sprintf("SELECT * from %s", TagsTable)
-	rows, err := db.Query(sql)
+	database, err := requireDB()
+	if err != nil {
+		return nil, err
+	}
+
+	query := fmt.Sprintf(`SELECT id, "key", value, note_id, creator, create_date FROM %s`, TagsTable)
+	rows, err := database.Query(query)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +35,7 @@ func (tag Tag) AllTags() ([]*Tag, error) {
 
 	for rows.Next() {
 		tag := new(Tag)
-		err := rows.Scan(&tag.Id, &tag.Key, &tag.Value)
+		err := rows.Scan(&tag.Id, &tag.Key, &tag.Value, &tag.NoteId, &tag.Creator, &tag.CreateDate)
 		if err != nil {
 			return nil, err
 		}
@@ -44,25 +50,34 @@ func (tag Tag) AllTags() ([]*Tag, error) {
 }
 
 func (tag Tag) Save() (*Tag, error){
-	var sql string
-	if tag.Id == 0 {
-		tag.CreateDate = time.Now()
-		tag.CreateDate.Format(time.RFC3339)
-		sql = fmt.Sprintf("INSERT INTO %s (`key`, `value`, `note_id`, `creator`, `create_date`) VALUES (?,?,?,?,?)", TagsTable)
-	} else {
-		sql = fmt.Sprintf("UPDATE %s SET `key`=?, `value`=?, `note_id`, `creator`=?, `create_date`=? WHERE `id`=%d", TagsTable, tag.Id)
-	}
-
-	res, err := db.Exec(sql, tag.Key, tag.Value, tag.NoteId, tag.Creator, tag.CreateDate)
+	database, err := requireDB()
 	if err != nil {
 		return nil, err
 	}
 
+	var query string
 	if tag.Id == 0 {
-		tag.Id, err = res.LastInsertId()
+		tag.CreateDate = time.Now()
+		query = fmt.Sprintf(
+			`INSERT INTO %s ("key", value, note_id, creator, create_date) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+			TagsTable,
+		)
+	} else {
+		query = fmt.Sprintf(
+			`UPDATE %s SET "key"=$1, value=$2, note_id=$3, creator=$4, create_date=$5 WHERE id=$6`,
+			TagsTable,
+		)
+		_, err = database.Exec(query, tag.Key, tag.Value, tag.NoteId, tag.Creator, tag.CreateDate, tag.Id)
 		if err != nil {
 			return nil, err
 		}
+
+		return &tag, nil
+	}
+
+	err = database.QueryRow(query, tag.Key, tag.Value, tag.NoteId, tag.Creator, tag.CreateDate).Scan(&tag.Id)
+	if err != nil {
+		return nil, err
 	}
 
 	return &tag, nil
@@ -73,9 +88,13 @@ func (tag Tag) FindByKeyAndValueAndNoteId(key string, value string, noteId int64
 		return nil, errors.New("Please provide key, value, and noteId")
 	}
 
-	sql := fmt.Sprintf("select `id`, `note_id`, `key`, `value`, `creator`, `create_date` from %s where `key`=? and `value`=? and `note_id`=?", TagsTable)
+	database, err := requireDB()
+	if err != nil {
+		return nil, err
+	}
 
-	rows, err := db.Query(sql, key, value, noteId)
+	query := fmt.Sprintf(`SELECT id, note_id, "key", value, creator, create_date FROM %s WHERE "key"=$1 AND value=$2 AND note_id=$3`, TagsTable)
+	rows, err := database.Query(query, key, value, noteId)
 	if err != nil {
 		return nil, err
 	}
@@ -99,9 +118,13 @@ func (tag Tag) FindByKeyAndValue(key string, value string) ([]*Tag, error) {
 		return nil, errors.New("Please provide key, and value")
 	}
 
-	sql := fmt.Sprintf("select `id`, `note_id`, `key`, `value`, `creator`, `create_date` from %s where `key`=? and `value`=?", TagsTable)
+	database, err := requireDB()
+	if err != nil {
+		return nil, err
+	}
 
-	rows, err := db.Query(sql, key, value)
+	query := fmt.Sprintf(`SELECT id, note_id, "key", value, creator, create_date FROM %s WHERE "key"=$1 AND value=$2`, TagsTable)
+	rows, err := database.Query(query, key, value)
 	if err != nil {
 		return nil, err
 	}
@@ -125,9 +148,13 @@ func (tag Tag) FindByNoteId(noteId int64) (*[]Tag, error) {
 		return nil, errors.New("NoteId needs to be provided")
 	}
 
-	sql := fmt.Sprintf("select `id`, `note_id`, `key`, `value`, `creator`, `create_date` from %s where `note_id`=?", TagsTable)
+	database, err := requireDB()
+	if err != nil {
+		return nil, err
+	}
 
-	rows, err := db.Query(sql, noteId)
+	query := fmt.Sprintf(`SELECT id, note_id, "key", value, creator, create_date FROM %s WHERE note_id=$1`, TagsTable)
+	rows, err := database.Query(query, noteId)
 	if err != nil {
 		return nil, err
 	}
