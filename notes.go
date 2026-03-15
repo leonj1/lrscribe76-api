@@ -29,6 +29,7 @@ func main() {
 	flag.Parse()
 
 	databaseURL := os.Getenv("DATABASE_URL")
+	databaseReady := false
 	srvPort := envOrFlag("PORT", serverPort)
 	if srvPort == "" {
 		srvPort = "8080"
@@ -37,6 +38,8 @@ func main() {
 	if databaseURL != "" {
 		if err := models.InitDB(databaseURL); err != nil {
 			log.Printf("Warning: database connection unavailable: %v", err)
+		} else {
+			databaseReady = true
 		}
 	} else {
 		log.Println("Warning: DATABASE_URL not configured, database endpoints will not work")
@@ -53,18 +56,6 @@ func main() {
 	}
 
 	router.Get("/api/auth/user", routes.AuthUser)
-	router.Get("/notes", routes.AllNotes)
-	router.Post("/notes", routes.AddNote)
-	router.Put("/notes/:id", routes.AddTags)
-	router.Delete("/notes/:id", routes.DeleteNote)
-	router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
-	router.Post("/api/transcriptions", routes.CreateTranscription)
-	router.Get("/api/transcriptions", routes.ListTranscriptions)
-
-	// common queries
-	router.Get("/activenotes", routes.ActiveNotes)
-
-	// health
 	router.Get("/health", routes.Health)
 	router.Post("/api/generate-document", routes.GenerateDocument)
 	router.Post("/api/regenerate-section", routes.RegenerateSection)
@@ -76,12 +67,21 @@ func main() {
 	router.Post("/api/audio/chunk/:recordingId", routes.ConvexAuth(routes.AudioChunk))
 	router.Get("/api/audio/status/:recordingId", routes.ConvexAuth(routes.AudioStatus))
 
-	// filters
-	router.Get("/tags/:key/:value", routes.FilterNotesByTag)
-
 	// audio
 	router.Post("/api/audio/complete/:recordingId", routes.WithConvexAuth(routes.AudioComplete))
 	router.Post("/api/audio/trigger-interim/:recordingId", routes.WithConvexAuth(routes.AudioTriggerInterim))
+
+	if databaseReady {
+		router.Get("/notes", routes.AllNotes)
+		router.Post("/notes", routes.AddNote)
+		router.Put("/notes/:id", routes.AddTags)
+		router.Delete("/notes/:id", routes.DeleteNote)
+		router.Get("/api/transcriptions/:id", routes.GetTranscription, clerkMiddleware)
+		router.Post("/api/transcriptions", routes.CreateTranscription)
+		router.Get("/api/transcriptions", routes.ListTranscriptions)
+		router.Get("/activenotes", routes.ActiveNotes)
+		router.Get("/tags/:key/:value", routes.FilterNotesByTag)
+	}
 
 	log.Println("Starting web server")
 	log.Printf("Starting on port %s", srvPort)

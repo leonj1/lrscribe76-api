@@ -16,21 +16,23 @@ type DB struct {
 
 func InitDB(connectionString string) error {
 	if connectionString == "" {
-		db = nil
 		return ErrDBUnavailable
 	}
 
-	var err error
-	db, err = sql.Open("postgres", connectionString)
+	newDB, err := sql.Open("postgres", connectionString)
 	if err != nil {
-		db = nil
 		return err
 	}
 
-	if err = db.Ping(); err != nil {
-		_ = db.Close()
-		db = nil
+	if err = newDB.Ping(); err != nil {
+		_ = newDB.Close()
 		return err
+	}
+
+	oldDB := db
+	db = newDB
+	if oldDB != nil {
+		_ = oldDB.Close()
 	}
 
 	return nil

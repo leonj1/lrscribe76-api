@@ -30,13 +30,17 @@ func (transcription Transcription) FindById(id int64) (*Transcription, error) {
 	)
 
 	found := &Transcription{}
+	var title sql.NullString
+	var audioURL sql.NullString
+	var content sql.NullString
+	var status sql.NullString
 	err = database.QueryRow(sqlStatement, id).Scan(
 		&found.Id,
 		&found.UserId,
-		&found.Title,
-		&found.AudioUrl,
-		&found.Content,
-		&found.Status,
+		&title,
+		&audioURL,
+		&content,
+		&status,
 		&found.CreatedAt,
 	)
 	if err != nil {
@@ -45,6 +49,11 @@ func (transcription Transcription) FindById(id int64) (*Transcription, error) {
 		}
 		return nil, err
 	}
+
+	found.Title = title.String
+	found.AudioUrl = audioURL.String
+	found.Content = content.String
+	found.Status = status.String
 
 	return found, nil
 }

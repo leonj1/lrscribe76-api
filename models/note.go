@@ -149,19 +149,22 @@ func (note Note) DeleteNodeById(noteId int64) (error) {
 		return err
 	}
 
-	query := fmt.Sprintf("DELETE FROM %s WHERE note_id=$1", TagsTable)
-	_, err = database.Exec(query, noteId)
+	tx, err := database.Begin()
 	if err != nil {
 		return err
 	}
 
-	query = fmt.Sprintf("DELETE FROM %s WHERE id=$1", NotesTable)
-	_, err = database.Exec(query, noteId)
-	if err != nil {
+	if _, err = tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE note_id=$1", TagsTable), noteId); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 
-	return nil
+	if _, err = tx.Exec(fmt.Sprintf("DELETE FROM %s WHERE id=$1", NotesTable), noteId); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (note Note) FindIn(ids *[]int64) ([]*Note, error) {

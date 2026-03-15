@@ -110,6 +110,10 @@ func (tag Tag) FindByKeyAndValueAndNoteId(key string, value string, noteId int64
 		tags = append(tags, *t)
 	}
 
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return &tags, nil
 }
 
@@ -140,6 +144,10 @@ func (tag Tag) FindByKeyAndValue(key string, value string) ([]*Tag, error) {
 		tags = append(tags, t)
 	}
 
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
 	return tags, nil
 }
 
@@ -168,6 +176,10 @@ func (tag Tag) FindByNoteId(noteId int64) (*[]Tag, error) {
 			return nil, err
 		}
 		tags = append(tags, *t)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return &tags, nil
